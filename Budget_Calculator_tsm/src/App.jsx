@@ -1,7 +1,7 @@
 // src/App.jsx
 import React from "react";
-import Calculator from "./components/Calculator";
-import Layout from "./components/Layout";
+import Calculator from "./Components/Calculator";
+import Layout from "./Components/Layout";
 
 export default function App() {
   return (
