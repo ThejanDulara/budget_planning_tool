@@ -6,11 +6,11 @@ import { jsPDF } from "jspdf";
  * Developing & Emerging Markets
  */
 const RATIO_TABLE = [
-  { min: 100, large: 1.2, constrained: 1.65 },
-  { min: 50, max: 99, large: 1.15, constrained: 1.5 },
-  { min: 0, max: 49, large: 1.1, constrained: 1.35 },
-  { min: -50, max: -1, large: 1.05, constrained: 1.25 },
-  { max: -51, large: 0.8, constrained: 0.9 },
+  { min: 1.0, large: 1.2, contender: 1.65 },           // 1% and above
+  { min: 0.5, max: 0.99, large: 1.15, contender: 1.5 },// 0.5% – 0.99%
+  { min: 0.0, max: 0.49, large: 1.1, contender: 1.35 },// 0 – 0.49%
+  { min: -0.5, max: -0.01, large: 1.05, contender: 1.25 }, // 0 – -0.5%
+  { max: -0.51, large: 0.8, contender: 0.9 },          // less than -0.5%
 ];
 
 // --- Sub-components moved OUTSIDE the main component to prevent focus loss ---
@@ -61,18 +61,16 @@ export default function Calculator() {
   const [leaderName, setLeaderName] = useState("");
   const [leaderSOM, setLeaderSOM] = useState(0);
 
-  // Expected SOM
-  const [expectedNextSOM, setExpectedNextSOM] = useState(0);
-
   // GRP inputs
   const [brandGrp, setBrandGrp] = useState(0);
-  const [brandGrpIncrease, setBrandGrpIncrease] = useState(0);
 
   const [compGrp, setCompGrp] = useState(0);
   const [compGrpIncrease, setCompGrpIncrease] = useState(0);
 
   // Cost
   const [cprp, setCprp] = useState(0);
+  const [tvToAllMediaFactor, setTvToAllMediaFactor] = useState(1);
+
 
   // Success message state
   const [showSuccess, setShowSuccess] = useState(false);
@@ -83,32 +81,59 @@ export default function Calculator() {
   // Derived calculations
   // -----------------------------
 
-  const bps = useMemo(() => nextSOM - currentSOM, [nextSOM, currentSOM]);
+     const growthPct = useMemo(
+      () => nextSOM - currentSOM,
+      [nextSOM, currentSOM]
+    );
+
 
   const marketType = useMemo(() => {
-    if (leaderSOM / 2 > currentSOM) return "Constrained";
+    if (leaderSOM / 2 > currentSOM) return "Contender";
     return "Large";
   }, [leaderSOM, currentSOM]);
 
-  const ratio = useMemo(() => {
-    const row = RATIO_TABLE.find((r) => {
-      if (r.min !== undefined && r.max !== undefined) {
-        return bps >= r.min && bps <= r.max;
-      }
-      if (r.min !== undefined) return bps >= r.min;
-      if (r.max !== undefined) return bps <= r.max;
-      return false;
-    });
-    return row ? (marketType === "Large" ? row.large : row.constrained) : 0;
-  }, [bps, marketType]);
+    const ratio = useMemo(() => {
+      const row = RATIO_TABLE.find((r) => {
+        if (r.min !== undefined && r.max !== undefined) {
+          return growthPct >= r.min && growthPct <= r.max;
+        }
+        if (r.min !== undefined) return growthPct >= r.min;
+        if (r.max !== undefined) return growthPct <= r.max;
+        return false;
+      });
 
-  const expectedSOV = useMemo(() => expectedNextSOM * ratio, [expectedNextSOM, ratio]);
+      return row ? (marketType === "Large" ? row.large : row.contender) : 0;
+    }, [growthPct, marketType]);
 
-  const nextBrandGrp = useMemo(() => brandGrp * (1 + brandGrpIncrease / 100), [brandGrp, brandGrpIncrease]);
-  const nextCompGrp = useMemo(() => compGrp * (1 + compGrpIncrease / 100), [compGrp, compGrpIncrease]);
-  const nextTotalGrp = useMemo(() => nextBrandGrp + nextCompGrp, [nextBrandGrp, nextCompGrp]);
-  const nextYearBrandGrp = useMemo(() => nextTotalGrp * (expectedSOV / 100), [nextTotalGrp, expectedSOV]);
-  const nextYearBudget = useMemo(() => nextYearBrandGrp * cprp, [nextYearBrandGrp, cprp]);
+
+  const expectedSOV = useMemo(() => nextSOM * ratio, [nextSOM, ratio]);
+
+
+    // Competitor next-year GRP
+    const nextCompGrp = useMemo(
+      () => compGrp * (1 + compGrpIncrease / 100),
+      [compGrp, compGrpIncrease]
+    );
+
+    // Total market GRP (represents 100%)
+    const totalMarketGrp = useMemo(() => {
+      const compShare = 1 - expectedSOV / 100;
+      if (compShare <= 0) return 0; // safety guard
+      return nextCompGrp / compShare;
+    }, [nextCompGrp, expectedSOV]);
+
+    // Brand next-year GRP (derived, NOT input)
+    const nextYearBrandGrp = useMemo(
+      () => totalMarketGrp * (expectedSOV / 100),
+      [totalMarketGrp, expectedSOV]
+    );
+
+  const nextYearTVBudget = useMemo(() => nextYearBrandGrp * cprp, [nextYearBrandGrp, cprp]);
+
+  const totalBudget = useMemo(
+      () => nextYearTVBudget * tvToAllMediaFactor,
+      [nextYearTVBudget, tvToAllMediaFactor]
+    );
 
   // -----------------------------
   // PDF Download Function
@@ -167,7 +192,12 @@ export default function Calculator() {
     yPos += 15;
     doc.setFontSize(14);
     doc.setTextColor(66, 153, 225);
-    doc.text(`Total Projected Budget: ${nextYearBudget.toLocaleString('en-US', { maximumFractionDigits: 0 })}`, 20, yPos);
+    doc.text(
+      `Total Projected Budget (All Media): ${totalBudget.toLocaleString('en-US', { maximumFractionDigits: 0 })}`,
+      20,
+      yPos
+    );
+
 
     // Function to draw data sections
     const drawSection = (title, data) => {
@@ -193,7 +223,7 @@ export default function Calculator() {
       ["Current Year", currentYear],
       ["Current SOM (%)", currentSOM.toFixed(2)],
       [`${nextYear} SOM (%)`, nextSOM.toFixed(2)],
-      ["BPS Growth", `${bps.toFixed(2)}%`]
+      ["SOM Growth", `${growthPct.toFixed(2)}%`]
     ]);
 
     drawSection("Market Structure", [
@@ -204,20 +234,21 @@ export default function Calculator() {
     ]);
 
     drawSection("Share of Voice (SOV)", [
-      [`Target SOM ${nextYear} (%)`, expectedNextSOM.toFixed(2)],
+      [`Target SOM ${nextYear} (%)`, nextSOM.toFixed(2)],
       [`Required SOV ${nextYear} (%)`, expectedSOV.toFixed(2)]
     ]);
 
     drawSection("GRP Analysis", [
-      [`${brand || "Brand"} GRP ${nextYear}`, nextBrandGrp.toFixed(0)],
+      [`${brand || "Brand"} GRP ${nextYear}`, nextYearBrandGrp.toFixed(2)],
       [`Competitor GRP ${nextYear}`, nextCompGrp.toFixed(0)],
-      [`Total Market GRP ${nextYear}`, nextTotalGrp.toFixed(0)],
-      [`Calculated Brand GRP`, nextYearBrandGrp.toFixed(2)]
+      [`Total Market GRP (100%)`, totalMarketGrp.toFixed(0)]
     ]);
 
     drawSection("Financial Impact", [
-      ["CPRP (Cost Per Rating Point)", cprp.toLocaleString('en-US')],
-      [`Projected Budget for ${nextYear}`, nextYearBudget.toLocaleString('en-US', { maximumFractionDigits: 0 })]
+    ["CPRP (TV)", cprp.toLocaleString('en-US')],
+    ["TV → All Media Factor", tvToAllMediaFactor],
+    [`TV Budget ${nextYear}`, nextYearTVBudget.toLocaleString('en-US', { maximumFractionDigits: 0 })],
+    [`Total Media Budget ${nextYear}`, totalBudget.toLocaleString('en-US', { maximumFractionDigits: 0 })],
     ]);
 
     drawFooter();
@@ -236,95 +267,198 @@ export default function Calculator() {
           <p style={styles.subTitle}>SOV to SOM Ratio-based budget planning tool</p>
         </div>
 
-        <div style={styles.topContainer}>
-          <div style={styles.card}>
-            <h3 style={styles.cardTitle}>Brand & Market Inputs</h3>
-            <div style={styles.grid2}>
-              <InputField label="Brand Name" value={brand} onChange={setBrand} />
-              <InputField label="Current Year" type="number" value={currentYear} onChange={setCurrentYear} />
-              <InputField label="Current Year SOM (%)" type="number" value={currentSOM} onChange={setCurrentSOM} tooltip="Current Share of Market" />
-              <InputField label={`${nextYear} SOM (%)`} type="number" value={nextSOM} onChange={setNextSOM} tooltip="Next year's Share of Market" />
-            </div>
-            <ResultField label={`BPS Growth`} value={bps.toFixed(2)} unit="%" highlight={true} />
-          </div>
+{/* ================= ROW 1 ================= */}
+<div style={styles.rowGrid}>
+  {/* Brand & Market Inputs */}
+  <div style={styles.card}>
+    <h3 style={styles.cardTitle}>Brand & Market Inputs</h3>
 
-          <div style={styles.card}>
-            <h3 style={styles.cardTitle}>Market Structure</h3>
-            <div style={styles.grid2}>
-              <InputField label="Category Leader Name" value={leaderName} onChange={setLeaderName} />
-              <InputField label="Leader SOM (%)" type="number" value={leaderSOM} onChange={setLeaderSOM} tooltip="Category Leader's Share of Market" />
-            </div>
-            <div style={styles.resultGrid}>
-              <ResultField label="Market Type" value={marketType} highlight={marketType === "Constrained"} />
-              <ResultField label="Selected Ratio" value={ratio.toFixed(2)} />
-            </div>
-          </div>
-        </div>
+    <div style={styles.grid2}>
+      <InputField label="Brand Name" value={brand} onChange={setBrand} />
+      <InputField
+        label="Current Year"
+        type="number"
+        value={currentYear}
+        onChange={setCurrentYear}
+      />
+      <InputField
+        label="Current Year SOM (%)"
+        type="number"
+        value={currentSOM}
+        onChange={setCurrentSOM}
+        tooltip="Current Share of Market"
+      />
+      <InputField
+        label={`${nextYear} SOM (%)`}
+        type="number"
+        value={nextSOM}
+        onChange={setNextSOM}
+        tooltip="Next year's Share of Market"
+      />
+    </div>
 
-        <div style={styles.middleContainer}>
-          <div style={styles.card}>
-            <h3 style={styles.cardTitle}>Share of Voice</h3>
-            <div style={styles.grid2}>
-              <InputField label={`Expected SOM in ${nextYear} (%)`} type="number" value={expectedNextSOM} onChange={setExpectedNextSOM} />
-            </div>
-            <ResultField label={`Expected SOV in ${nextYear}`} value={expectedSOV.toFixed(2)} unit="%" highlight={true} />
-          </div>
+    <ResultField
+      label="SOM Growth"
+      value={growthPct.toFixed(2)}
+      unit="%"
+      highlight
+    />
+  </div>
 
-          <div style={styles.card}>
-            <h3 style={styles.cardTitle}>GRP Calculation</h3>
-            <div style={styles.grpTable}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th></th>
-                    <th>Current</th>
-                    <th>Increase %</th>
-                    <th>{nextYear}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td style={styles.tableLabel}>{brand || "Brand"} GRP</td>
-                    <td><input type="number" value={brandGrp} onChange={(e) => setBrandGrp(+e.target.value)} style={styles.tableInput} /></td>
-                    <td><input type="number" value={brandGrpIncrease} onChange={(e) => setBrandGrpIncrease(+e.target.value)} style={styles.tableInput} /></td>
-                    <td style={styles.tableResult}>{nextBrandGrp.toFixed(0)}</td>
-                  </tr>
-                  <tr>
-                    <td style={styles.tableLabel}>Competitor GRP</td>
-                    <td><input type="number" value={compGrp} onChange={(e) => setCompGrp(+e.target.value)} style={styles.tableInput} /></td>
-                    <td><input type="number" value={compGrpIncrease} onChange={(e) => setCompGrpIncrease(+e.target.value)} style={styles.tableInput} /></td>
-                    <td style={styles.tableResult}>{nextCompGrp.toFixed(0)}</td>
-                  </tr>
-                  <tr style={styles.totalRow}>
-                    <td style={styles.tableLabel}><strong>Total GRP</strong></td>
-                    <td></td><td></td>
-                    <td style={styles.tableResult}><strong>{nextTotalGrp.toFixed(0)}</strong></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+  {/* Market Structure */}
+  <div style={styles.card}>
+    <h3 style={styles.cardTitle}>Market Structure</h3>
 
-        <div style={styles.bottomContainer}>
-          <div style={styles.wideCard}>
-            <h3 style={styles.cardTitle}>Budget Calculation</h3>
-            <div style={styles.budgetGrid}>
-              <div style={styles.budgetInputSection}>
-                <InputField label="CPRP" type="number" value={cprp} onChange={setCprp} tooltip="Cost Per Rating Point" />
-                <ResultField label={`${nextYear} Brand GRP`} value={nextYearBrandGrp.toFixed(2)} />
-              </div>
-              <div style={styles.budgetResultSection}>
-                <div style={styles.budgetResult}>
-                  <div style={styles.budgetResultLabel}>{nextYear} Budget</div>
-                  <div style={styles.budgetResultValue}>
-                    {nextYearBudget.toLocaleString('en-US', { maximumFractionDigits: 0 })}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+    <div style={styles.grid2}>
+      <InputField
+        label="Category Leader Name"
+        value={leaderName}
+        onChange={setLeaderName}
+      />
+      <InputField
+        label="Leader SOM (%)"
+        type="number"
+        value={leaderSOM}
+        onChange={setLeaderSOM}
+        tooltip="Category Leader's Share of Market"
+      />
+    </div>
+
+    <div style={styles.resultGrid}>
+      <ResultField
+        label="Market Type"
+        value={marketType}
+        highlight={marketType === "Contender"}
+      />
+      <ResultField
+        label="Selected Ratio"
+        value={ratio.toFixed(2)}
+      />
+      <ResultField
+        label={`Expected SOV ${nextYear}`}
+        value={expectedSOV.toFixed(2)}
+        unit="%"
+        highlight
+      />
+    </div>
+  </div>
+</div>
+
+{/* ================= ROW 2 ================= */}
+<div style={styles.rowGrid}>
+  {/* GRP Calculation */}
+  <div style={styles.card}>
+    <h3 style={styles.cardTitle}>GRP Calculation</h3>
+
+    <div style={styles.grpTable}>
+      <table style={styles.table}>
+        <thead>
+          <tr>
+            <th></th>
+            <th>Current</th>
+            <th>Increase %</th>
+            <th>{nextYear}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={styles.tableLabel}>{brand || "Brand"} GRP</td>
+            <td>
+              <input
+                type="number"
+                value={brandGrp}
+                onChange={(e) => setBrandGrp(+e.target.value)}
+                style={styles.tableInput}
+              />
+            </td>
+            <td style={{ textAlign: "center", color: "#a0aec0" }}>—</td>
+            <td style={styles.tableResult}>
+              {nextYearBrandGrp.toFixed(2)}
+            </td>
+          </tr>
+
+          <tr>
+            <td style={styles.tableLabel}>Competitor GRP</td>
+            <td>
+              <input
+                type="number"
+                value={compGrp}
+                onChange={(e) => setCompGrp(+e.target.value)}
+                style={styles.tableInput}
+              />
+            </td>
+            <td>
+              <input
+                type="number"
+                value={compGrpIncrease}
+                onChange={(e) => setCompGrpIncrease(+e.target.value)}
+                style={styles.tableInput}
+              />
+            </td>
+            <td style={styles.tableResult}>
+              {nextCompGrp.toFixed(2)}
+            </td>
+          </tr>
+
+          <tr style={styles.totalRow}>
+            <td style={styles.tableLabel}>
+              <strong>Total Market GRP (100%)</strong>
+            </td>
+            <td></td>
+            <td></td>
+            <td style={styles.tableResult}>
+              <strong>{totalMarketGrp.toFixed(2)}</strong>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {/* Budget Calculation */}
+  <div style={styles.card}>
+    <h3 style={styles.cardTitle}>Budget Calculation</h3>
+
+<div style={styles.grid2}>
+  <InputField
+    label="CPRP (TV)"
+    type="number"
+    value={cprp}
+    onChange={setCprp}
+    tooltip="Cost per Rating Point for TV"
+  />
+
+  <InputField
+    label="TV → All Media Factor"
+    type="number"
+    value={tvToAllMediaFactor}
+    onChange={setTvToAllMediaFactor}
+    tooltip="Multiplier to convert TV budget to total media budget"
+  />
+</div>
+
+<div style={styles.finalBudgetRow}>
+  <div style={styles.budgetResult}>
+    <div style={styles.budgetResultLabel}>
+      {nextYear} TV Budget
+    </div>
+    <div style={styles.budgetResultValue}>
+      {nextYearTVBudget.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+    </div>
+  </div>
+
+  <div style={styles.budgetResult}>
+    <div style={styles.budgetResultLabel}>
+      {nextYear} Total Media Budget
+    </div>
+    <div style={styles.budgetResultValue}>
+      {totalBudget.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+    </div>
+  </div>
+</div>
+
+  </div>
+</div>
 
         <div style={styles.actionSection}>
           <button onClick={downloadPDF} style={styles.downloadButton}>Download PDF Report</button>
@@ -341,10 +475,26 @@ const styles = {
   titleSection: { backgroundColor: 'white', padding: '20px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', textAlign: 'center' },
   mainTitle: { margin: '0', color: '#2d3748', fontSize: '24px', fontWeight: '600' },
   subTitle: { margin: '8px 0 0 0', color: '#718096', fontSize: '14px', fontStyle: 'italic' },
-  topContainer: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' },
+    topContainer: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: "20px",
+      marginBottom: "20px",
+      alignItems: "stretch",
+      gridAutoRows: "1fr",   // 👈 THIS is the key
+    },
+
   middleContainer: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' },
   bottomContainer: { marginBottom: '20px' },
-  card: { backgroundColor: 'white', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0' },
+card: {
+  backgroundColor: "white",
+  padding: "20px",
+  borderRadius: "8px",
+  border: "1px solid #e2e8f0",
+  display: "flex",
+  flexDirection: "column",
+},
+
   wideCard: { backgroundColor: 'white', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0' },
   cardTitle: { margin: '0 0 20px 0', color: '#2d3748', fontSize: '18px', fontWeight: '600', paddingBottom: '10px', borderBottom: '2px solid #e2e8f0' },
   grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' },
@@ -365,10 +515,27 @@ const styles = {
   budgetGrid: { display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '40px', alignItems: 'center' },
   budgetInputSection: { display: 'flex', flexDirection: 'column', gap: '20px' },
   budgetResultSection: { display: 'flex', justifyContent: 'center' },
-  budgetResult: { textAlign: 'center', padding: '30px', backgroundColor: '#4299e1', borderRadius: '8px', color: 'white', minWidth: '300px' },
+  budgetResult: { textAlign: 'center', padding: '30px', backgroundColor: '#4299e1', borderRadius: '8px', color: 'white',width: '100%',boxSizing: 'border-box', },
   budgetResultLabel: { fontSize: '14px', fontWeight: '500', marginBottom: '10px', opacity: 0.9 },
   budgetResultValue: { fontSize: '32px', fontWeight: '600' },
   actionSection: { display: 'flex', justifyContent: 'center', marginTop: '30px', marginBottom: '30px' },
   downloadButton: { padding: '12px 24px', backgroundColor: '#48bb78', color: 'white', border: 'none', borderRadius: '6px', fontSize: '16px', fontWeight: '600', cursor: 'pointer' },
   successMessage: { position: 'fixed', top: '20px', right: '20px', backgroundColor: '#48bb78', color: 'white', padding: '12px 20px', borderRadius: '6px', zIndex: 1000 },
+  finalBudgetRow: {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "20px",
+  marginTop: "20px",
+},
+rowGrid: {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "20px",
+  marginBottom: "20px",
+  alignItems: "stretch",
+  gridAutoRows: "1fr",   // ✅ KEY LINE
+},
+
+
 };
+
