@@ -156,7 +156,7 @@ export default function Calculator() {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       doc.setTextColor(150);
-      doc.text("Thirdshift Media Pvt Ltd", pageWidth - 20, 15, { align: "right" });
+      doc.text("MTM Group", pageWidth - 20, 15, { align: "right" });
       doc.setDrawColor(226, 232, 240);
       doc.line(20, 20, pageWidth - 20, 20);
     };
@@ -168,7 +168,7 @@ export default function Calculator() {
         doc.setFontSize(9);
         doc.setTextColor(160, 174, 192);
         doc.text(
-          `© ${new Date().getFullYear()} Thirdshift Media Pvt Ltd. Page ${i} of ${pageCount}`,
+          `© ${new Date().getFullYear()} MTM Group. Page ${i} of ${pageCount}`,
           pageWidth / 2,
           pageHeight - 10,
           { align: "center" }
